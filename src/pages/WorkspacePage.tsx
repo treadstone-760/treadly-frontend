@@ -56,6 +56,22 @@ export function WorkspacePage() {
       await refresh()
     },
   })
+  const changeMember = useMutation({
+    mutationFn: async (body: { id: string; role: string }) => {
+      await api.put(`/workspaces/${workspace?.id}/members/${body.id}`, { role: body.role })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['members', workspace?.id] })
+    },
+  })
+  const changeInvite = useMutation({
+    mutationFn: async (body: { id: string; role: string }) => {
+      await api.put(`/workspaces/${workspace?.id}/invitations/${body.id}`, { role: body.role })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['invitations', workspace?.id] })
+    },
+  })
 
   return (
     <>
@@ -69,7 +85,7 @@ export function WorkspacePage() {
           </Button>
         }
       />
-      <ErrorBanner error={create.error ?? invite.error ?? respond.error} />
+      <ErrorBanner error={create.error ?? invite.error ?? respond.error ?? changeMember.error ?? changeInvite.error} />
       <section className="card">
         <h2>Switch</h2>
         {loading ? <p className="muted">Loading…</p> : null}
@@ -133,14 +149,23 @@ export function WorkspacePage() {
                     <strong>{member.user.name}</strong>
                     <small>{member.user.email}</small>
                   </span>
-                  <Badge value={member.role} />
+                  {canManage(workspace.role) && member.role !== 'owner' && member.user.id !== user?.id ? (
+                    <RoleSelect
+                      value={member.role}
+                      label={`Role for ${member.user.name ?? member.user.email ?? 'member'}`}
+                      disabled={changeMember.isPending && changeMember.variables?.id === member.id}
+                      onChange={(role) => changeMember.mutate({ id: member.id, role })}
+                    />
+                  ) : (
+                    <Badge value={member.role} />
+                  )}
                 </li>
               ))}
             </ul>
           </QueryState>
           {canManage(workspace.role) ? (
             <QueryState isLoading={invitations.isLoading} error={invitations.error}>
-              {invitations.data && invitations.data.length > 0 ? (
+              {invitations.data && invitations.data.some((invitation) => invitation.status === 'pending') ? (
                 <>
                   <h3>Pending invitations</h3>
                   <ul className="plain">
@@ -149,9 +174,15 @@ export function WorkspacePage() {
                       .map((invitation) => (
                         <li key={invitation.id}>
                           <span>
-                            {invitation.email} · {labelize(invitation.role)}
+                            {invitation.email}
+                            <small>Pending</small>
                           </span>
-                          <Badge value={invitation.status} />
+                          <RoleSelect
+                            value={invitation.role}
+                            label={`Role for ${invitation.email}`}
+                            disabled={changeInvite.isPending && changeInvite.variables?.id === invitation.id}
+                            onChange={(role) => changeInvite.mutate({ id: invitation.id, role })}
+                          />
                         </li>
                       ))}
                   </ul>
@@ -221,5 +252,25 @@ export function WorkspacePage() {
         </Modal>
       ) : null}
     </>
+  )
+}
+
+function RoleSelect({
+  value,
+  label,
+  disabled,
+  onChange,
+}: {
+  value: string
+  label: string
+  disabled?: boolean
+  onChange: (role: string) => void
+}) {
+  return (
+    <select className="role-select" aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+      <option value="admin">Admin</option>
+      <option value="editor">Editor</option>
+      <option value="viewer">Viewer</option>
+    </select>
   )
 }

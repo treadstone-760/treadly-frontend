@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
@@ -16,12 +16,31 @@ const links = [
   ['/savings', 'Savings'],
   ['/debts', 'Debts'],
   ['/recurring', 'Recurring'],
-  ['/investments', 'Investments'],
+  // ['/investments', 'Investments'],
   ['/receipts', 'Receipts'],
-  ['/assistant', 'Assistant'],
+  // ['/assistant', 'Assistant'],
   ['/workspace', 'Workspace'],
+  ['/notifications', 'Notifications'],
   ['/settings', 'Settings'],
 ] as const
+
+function seenKey(userId: string): string {
+  return `treadly_seen_notices_${userId}`
+}
+
+function readSeen(userId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(seenKey(userId))
+    const ids = raw ? (JSON.parse(raw) as unknown) : []
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function storeSeen(userId: string, ids: Set<string>) {
+  localStorage.setItem(seenKey(userId), JSON.stringify([...ids].slice(-200)))
+}
 
 function playChime() {
   const Context = window.AudioContext
@@ -51,15 +70,19 @@ playChime.context = undefined as AudioContext | undefined
 function Frame() {
   const { user, logout } = useAuth()
   const { workspaces, workspace, loading, switchTo } = useWorkspace()
+  const location = useLocation()
   const [open, setOpen] = useState(false)
   const [toasts, setToasts] = useState<AppNotification[]>([])
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(() => (user ? readSeen(user.id) : new Set()))
   const seen = useRef<Set<string> | null>(null)
   const notes = useQuery({
     queryKey: ['notifications'],
     queryFn: async () => (await api.get<Page<AppNotification>>('/notifications')).data,
     refetchInterval: 5_000,
   })
-  const unread = notes.data?.data.filter((item) => !item.read_at).length ?? 0
+  const onMenu = location.pathname === '/notifications'
+  const received = notes.data?.data.filter((item) => !acknowledged.has(item.id)).length ?? 0
+  const badge = onMenu ? 0 : received
 
   useEffect(() => {
     const unlock = () => {
@@ -69,6 +92,28 @@ function Frame() {
     window.addEventListener('pointerdown', unlock)
     return () => window.removeEventListener('pointerdown', unlock)
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    setAcknowledged(readSeen(user.id))
+  }, [user?.id])
+
+  useEffect(() => {
+    if (!onMenu || !user || !notes.data) return
+    const ids = notes.data.data.map((item) => item.id)
+    setAcknowledged((current) => {
+      const next = new Set(current)
+      let changed = false
+      ids.forEach((id) => {
+        if (next.has(id)) return
+        next.add(id)
+        changed = true
+      })
+      if (!changed) return current
+      storeSeen(user.id, next)
+      return next
+    })
+  }, [onMenu, notes.data, user])
 
   useEffect(() => {
     const items = notes.data?.data
@@ -112,7 +157,7 @@ function Frame() {
               className={({ isActive }) => (isActive ? 'active' : undefined)}
             >
               {label}
-              {label === 'Settings' && unread > 0 ? <em>{unread}</em> : null}
+              {to === '/notifications' && badge > 0 ? <em>{badge}</em> : null}
             </NavLink>
           ))}
         </nav>

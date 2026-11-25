@@ -1,28 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { AppNotification, Page } from '../api/types'
 import { useAuth } from '../auth/AuthProvider'
 import { PasswordInput } from '../components/PasswordInput'
-import { Button, ErrorBanner, Field, PageHeader, QueryState, submit, text } from '../components/ui'
-
-const events = [
-  'budget.approaching',
-  'budget.exceeded',
-  'recurring.upcoming',
-  'debt.upcoming',
-  'debt.paid',
-  'savings.goal_achieved',
-  'workspace.invitation',
-  'receipt.processed',
-]
+import { Button, ErrorBanner, Field, PageHeader, submit, text } from '../components/ui'
 
 export function SettingsPage() {
   const { user, refresh } = useAuth()
-  const queryClient = useQueryClient()
-  const notes = useQuery({
-    queryKey: ['notifications'],
-    queryFn: async () => (await api.get<Page<AppNotification>>('/notifications')).data,
-  })
   const profile = useMutation({
     mutationFn: async (body: Record<string, string>) => {
       await api.put('/auth/profile', body)
@@ -41,26 +24,13 @@ export function SettingsPage() {
       await api.post('/auth/email/verification-notification')
     },
   })
-  const read = useMutation({
-    mutationFn: async (id: string) => {
-      await api.post(`/notifications/${id}/read`)
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['notifications'] })
-    },
-  })
-  const preference = useMutation({
-    mutationFn: async (event: string) => {
-      await api.put('/notification-preferences', { event, channel: 'database', enabled: true })
-    },
-  })
 
   if (!user) return null
 
   return (
     <>
       <PageHeader eyebrow="Settings" title="Your profile" lede="These details belong to you, not to a single workspace." />
-      <ErrorBanner error={profile.error ?? password.error ?? verify.error ?? read.error ?? preference.error} />
+      <ErrorBanner error={profile.error ?? password.error ?? verify.error} />
       <div className="grid-2">
         <form
           className="card stack"
@@ -122,38 +92,6 @@ export function SettingsPage() {
           )}
         </form>
       </div>
-      <section className="card">
-        <h2>Notifications</h2>
-        <QueryState isLoading={notes.isLoading} error={notes.error}>
-          {notes.data && notes.data.data.length === 0 ? <p className="muted">No notifications yet.</p> : null}
-          <ul className="plain">
-            {notes.data?.data.map((note) => (
-              <li key={note.id}>
-                <span>
-                  <strong>{note.data.title || 'Notice'}</strong>
-                  <small>{note.data.body}</small>
-                </span>
-                {!note.read_at ? (
-                  <Button type="button" variant="quiet" onClick={() => read.mutate(note.id)}>
-                    Mark read
-                  </Button>
-                ) : (
-                  <span className="muted">Read</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </QueryState>
-        <h3>In-app alerts</h3>
-        <div className="chips">
-          {events.map((event) => (
-            <Button key={event} type="button" variant="quiet" onClick={() => preference.mutate(event)}>
-              Enable {event}
-            </Button>
-          ))}
-        </div>
-        {preference.isSuccess ? <p className="muted">Preference saved for in-app notices.</p> : null}
-      </section>
     </>
   )
 }

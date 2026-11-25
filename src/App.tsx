@@ -10,6 +10,7 @@ import { CategoriesPage } from './pages/CategoriesPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DebtsPage } from './pages/DebtsPage'
 import { InvestmentsPage } from './pages/InvestmentsPage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { ReceiptsPage } from './pages/ReceiptsPage'
 import { RecurringPage } from './pages/RecurringPage'
 import { SavingsPage } from './pages/SavingsPage'
@@ -82,6 +83,7 @@ export default function App() {
         <Route path="receipts" element={<ReceiptsPage />} />
         <Route path="assistant" element={<AssistantPage />} />
         <Route path="workspace" element={<WorkspacePage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

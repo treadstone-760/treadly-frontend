@@ -244,6 +244,13 @@ th { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; colo
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field span { font-size: 0.86rem; font-weight: 580; }
 .field small { color: var(--ink-soft); }
+.role-select {
+  width: auto;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 12px;
+  padding: 8px 10px;
+}
 .field input, .field select, .field textarea, .workspace-switch select, .composer textarea {
   width: 100%;
   border: 1px solid var(--line);
