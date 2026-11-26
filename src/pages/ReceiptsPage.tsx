@@ -1,23 +1,11 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { api, idempotencyHeaders } from '../api/client'
 import type { Account, Category, List, Receipt } from '../api/types'
 import { RequireWorkspace, useWorkspace } from '../auth/WorkspaceProvider'
 import { AccountField, CategoryField } from '../components/picks'
-import { Badge, Button, Empty, ErrorBanner, Field, Modal, PageHeader, submit, text } from '../components/ui'
+import { Badge, Button, Empty, ErrorBanner, Field, Modal, PageHeader, QueryState, submit, text } from '../components/ui'
 import { canWrite, today } from '../lib/format'
-
-const storageKey = (workspaceId: string) => `treadly_receipts_${workspaceId}`
-
-function remembered(workspaceId: string): Receipt[] {
-  const raw = sessionStorage.getItem(storageKey(workspaceId))
-  if (!raw) return []
-  try {
-    return JSON.parse(raw) as Receipt[]
-  } catch {
-    return []
-  }
-}
 
 export function ReceiptsPage() {
   return (
@@ -29,33 +17,34 @@ export function ReceiptsPage() {
 
 function ReceiptsView({ id, currency }: { id: string; currency: string }) {
   const { workspace } = useWorkspace()
+  const queryClient = useQueryClient()
   const writable = canWrite(workspace?.role)
-  const [items, setItems] = useState<Receipt[]>(() => remembered(id))
   const [active, setActive] = useState<Receipt | null>(null)
+  const [viewing, setViewing] = useState<Receipt | null>(null)
   const [kind, setKind] = useState<'expense' | 'income'>('expense')
+  const receipts = useQuery({
+    queryKey: ['receipts', id],
+    queryFn: async () => (await api.get<List<Receipt>>(`/workspaces/${id}/receipts`)).data.data,
+  })
   const accounts = useQuery({
     queryKey: ['accounts', id],
     queryFn: async () => (await api.get<List<Account>>(`/workspaces/${id}/accounts`)).data.data,
+    enabled: active !== null,
   })
   const categories = useQuery({
     queryKey: ['categories', id],
     queryFn: async () => (await api.get<List<Category>>(`/workspaces/${id}/categories`)).data.data,
+    enabled: active !== null,
   })
-
-  function remember(next: Receipt[]) {
-    setItems(next)
-    sessionStorage.setItem(storageKey(id), JSON.stringify(next))
-  }
-
   const upload = useMutation({
     mutationFn: async (file: File) => {
       const body = new FormData()
       body.append('file', file)
       return (await api.post<{ data: Receipt }>(`/workspaces/${id}/receipts`, body)).data.data
     },
-    onSuccess: (receipt) => {
-      remember([receipt, ...items.filter((item) => item.id !== receipt.id)])
-      setActive(receipt)
+    onSuccess: async (receipt) => {
+      await queryClient.invalidateQueries({ queryKey: ['receipts', id] })
+      setViewing(receipt)
     },
   })
   const confirm = useMutation({
@@ -66,9 +55,10 @@ function ReceiptsView({ id, currency }: { id: string; currency: string }) {
         })
       ).data.data
     },
-    onSuccess: (receipt) => {
-      remember(items.map((item) => (item.id === receipt.id ? receipt : item)))
+    onSuccess: async () => {
       setActive(null)
+      await queryClient.invalidateQueries({ queryKey: ['receipts', id] })
+      await queryClient.invalidateQueries({ queryKey: ['transactions', id] })
     },
   })
 
@@ -77,9 +67,9 @@ function ReceiptsView({ id, currency }: { id: string; currency: string }) {
       <PageHeader
         eyebrow="Receipts"
         title="A photo, then a transaction"
-        lede="Upload a receipt, then confirm the amount and category yourself. Nothing is posted until you confirm it."
+        lede="Upload a receipt and open it again from this list. Nothing is posted until you confirm the amount and category."
       />
-      <ErrorBanner error={upload.error ?? confirm.error} />
+      <ErrorBanner error={upload.error ?? confirm.error ?? receipts.error} />
       {writable ? (
         <form
           className="card upload"
@@ -96,40 +86,52 @@ function ReceiptsView({ id, currency }: { id: string; currency: string }) {
           </Button>
         </form>
       ) : null}
-      {items.length === 0 ? (
-        <Empty title="No receipts in this session" body="Uploads from this browser session are listed here so you can confirm them." />
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Status</th>
-                <th>Amount</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((receipt) => (
-                <tr key={receipt.id}>
-                  <td>{receipt.original_name}</td>
-                  <td>
-                    <Badge value={receipt.status} />
-                  </td>
-                  <td>{receipt.total_amount ? `${receipt.total_amount} ${receipt.currency ?? ''}` : '—'}</td>
-                  <td>
-                    {writable && receipt.status !== 'confirmed' ? (
-                      <Button type="button" variant="quiet" onClick={() => setActive(receipt)}>
-                        Confirm
-                      </Button>
-                    ) : null}
-                  </td>
+      <QueryState isLoading={receipts.isLoading} error={receipts.error}>
+        {receipts.data && receipts.data.length === 0 ? (
+          <Empty title="No receipts yet" body="Upload a photo or PDF. It stays here so you can open it again." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Status</th>
+                  <th>Amount</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {receipts.data?.map((receipt) => (
+                  <tr key={receipt.id}>
+                    <td>
+                      <button type="button" className="file-link" onClick={() => setViewing(receipt)}>
+                        {receipt.original_name}
+                      </button>
+                    </td>
+                    <td>
+                      <Badge value={receipt.status} />
+                    </td>
+                    <td>{receipt.total_amount ? `${receipt.total_amount} ${receipt.currency ?? ''}` : '—'}</td>
+                    <td>
+                      <div className="row-actions">
+                        <Button type="button" variant="quiet" onClick={() => setViewing(receipt)}>
+                          View
+                        </Button>
+                        {writable && receipt.status !== 'confirmed' ? (
+                          <Button type="button" variant="quiet" onClick={() => setActive(receipt)}>
+                            Confirm
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </QueryState>
+      {viewing ? <ReceiptPreview receipt={viewing} onClose={() => setViewing(null)} /> : null}
       {active && accounts.data && categories.data ? (
         <Modal title="Confirm receipt" onClose={() => setActive(null)}>
           <form
@@ -182,5 +184,37 @@ function ReceiptsView({ id, currency }: { id: string; currency: string }) {
         </Modal>
       ) : null}
     </>
+  )
+}
+
+function ReceiptPreview({ receipt, onClose }: { receipt: Receipt; onClose: () => void }) {
+  const file = useQuery({
+    queryKey: ['receipt-file', receipt.id],
+    queryFn: async () => {
+      const response = await api.get<Blob>(`/receipts/${receipt.id}/download`, { responseType: 'blob' })
+      const header = String(response.headers['content-type'] ?? '')
+      const type = header && !header.includes('octet-stream') ? header.split(';')[0] : receipt.mime_type
+      return { url: URL.createObjectURL(new Blob([response.data], { type })), type }
+    },
+  })
+
+  useEffect(() => {
+    const url = file.data?.url
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [file.data?.url])
+
+  const image = file.data?.type.startsWith('image/')
+  const pdf = file.data?.type.includes('pdf')
+
+  return (
+    <Modal title={receipt.original_name || 'Receipt'} onClose={onClose}>
+      {file.isLoading ? <p className="muted">Opening the receipt…</p> : null}
+      {file.error ? <ErrorBanner error={file.error} /> : null}
+      {file.data && image ? <img className="receipt-preview" src={file.data.url} alt={receipt.original_name} /> : null}
+      {file.data && pdf ? <iframe className="receipt-preview" title={receipt.original_name} src={file.data.url} /> : null}
+      {file.data && !image && !pdf ? <p className="muted">This file cannot be shown here.</p> : null}
+    </Modal>
   )
 }

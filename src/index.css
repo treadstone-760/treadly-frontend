@@ -334,6 +334,9 @@ th { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; colo
 .composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .upload { max-width: 520px; }
+.receipt-preview { width: 100%; max-height: 65vh; object-fit: contain; background: white; border-radius: 12px; }
+iframe.receipt-preview { height: 65vh; border: 0; }
+.file-link { background: transparent; border: 0; padding: 0; color: var(--moss-deep); cursor: pointer; font: inherit; text-align: left; }
 
 @media (max-width: 960px) {
   .auth, .shell, .stats, .grid-2, .grid-3, .card-list, .chat-layout { grid-template-columns: 1fr; }
